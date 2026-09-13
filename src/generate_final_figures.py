@@ -17,6 +17,7 @@ from recovery_metrics import add_relative_recovery, load_analysis_dataset
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 PROCESSED = ROOT / "data" / "processed"
 TABLES = ROOT / "outputs" / "tables"
@@ -26,15 +27,17 @@ RECOVERY_METRICS = TABLES / "recovery_metrics.csv"
 COHORT_SUMMARY = TABLES / "cohort_summary.csv"
 MODEL_TABLE = TABLES / "climate_recovery_models.csv"
 CRS_MAP = "EPSG:3978"
+CRS_BASEMAP = "EPSG:3857"
 NAD83 = "EPSG:4269"
 COHORT_ORDER = ["1984-1994", "1995-2004", "2005-2014", "2015-2022", "2023+"]
 COHORT_COLORS = {
-    "1984-1994": "#355C7D",
-    "1995-2004": "#6C5B7B",
-    "2005-2014": "#C06C84",
-    "2015-2022": "#F08A5D",
-    "2023+": "#2A9D8F",
+    "1984-1994": "#3B5F7D",
+    "1995-2004": "#5B7493",
+    "2005-2014": "#927A4D",
+    "2015-2022": "#B56645",
+    "2023+": "#7A3F3B",
 }
+BASEMAP_PROVIDER = "Esri.WorldGrayCanvas"
 
 
 def configure_style() -> None:
@@ -87,39 +90,126 @@ def add_cohort_axis(ax) -> None:
     ax.set_xticklabels(COHORT_ORDER, rotation=30, ha="right")
 
 
+def add_cartodb_positron(ax) -> bool:
+    try:
+        import contextily as cx
+
+        provider = cx.providers.Esri.WorldGrayCanvas
+        cx.add_basemap(
+            ax,
+            source=provider,
+            attribution=False,
+            zoom=8,
+            alpha=0.92,
+        )
+        return True
+    except Exception as exc:
+        print(f"Basemap unavailable; using local fallback background. Reason: {exc}")
+        ax.set_facecolor("#F6F6F3")
+        return False
+
+
+def add_scale_bar(ax, length_km: int = 50) -> None:
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    length_m = length_km * 1000
+    x_start = x0 + 0.07 * (x1 - x0)
+    y_start = y0 + 0.08 * (y1 - y0)
+    ax.plot([x_start, x_start + length_m], [y_start, y_start], color="#222222", linewidth=1.3, solid_capstyle="butt", zorder=10)
+    ax.text(x_start + length_m / 2, y_start + 0.018 * (y1 - y0), f"{length_km} km", ha="center", va="bottom", fontsize=8, color="#222222", zorder=10)
+
+
+def add_locator_inset(fig, ax, center_lon: float, center_lat: float) -> None:
+    inset = inset_axes(ax, width="24%", height="24%", loc="upper right", borderpad=1.1)
+    inset.set_facecolor("white")
+    try:
+        url = "https://naturalearth.s3.amazonaws.com/50m_cultural/ne_50m_admin_1_states_provinces.zip"
+        provinces = gpd.read_file(url)
+        quebec = provinces.loc[
+            (provinces["admin"].eq("Canada")) & (provinces["name_en"].eq("Quebec"))
+        ].to_crs(NAD83)
+        if quebec.empty:
+            raise ValueError("Quebec outline not found in Natural Earth layer")
+        quebec.boundary.plot(ax=inset, color="#555555", linewidth=0.6)
+        inset.scatter([center_lon], [center_lat], s=16, color="#B56645", zorder=5)
+        inset.set_xlim(-81.5, -56.0)
+        inset.set_ylim(44.0, 63.5)
+        inset.text(-80.5, 62.0, "Quebec", fontsize=7, color="#333333")
+    except Exception as exc:
+        print(f"Locator boundary unavailable; using schematic locator. Reason: {exc}")
+        inset.plot([-80, -57, -57, -80, -80], [45, 45, 63, 63, 45], color="#777777", linewidth=0.7)
+        inset.scatter([center_lon], [center_lat], s=16, color="#B56645", zorder=5)
+        inset.text(-79.2, 61.2, "Quebec", fontsize=7, color="#333333")
+        inset.set_xlim(-84, -54)
+        inset.set_ylim(43, 65)
+    inset.set_xticks([])
+    inset.set_yticks([])
+    for spine in inset.spines.values():
+        spine.set_color("#BDBDBD")
+        spine.set_linewidth(0.6)
+    inset.set_title("Location", fontsize=7, pad=2)
+
+
 def figure_01_map() -> None:
     require(FIRE_GEOJSON)
     fires = gpd.read_file(FIRE_GEOJSON).set_crs(NAD83, allow_override=True).to_crs(CRS_MAP)
     center = gpd.GeoDataFrame(
-        {"name": ["Lebel-sur-Quevillon"]},
+        {"name": ["Lebel-sur-Quévillon"]},
         geometry=[Point(-76.98, 49.05)],
         crs=NAD83,
     ).to_crs(CRS_MAP)
     aoi = gpd.GeoDataFrame(geometry=center.buffer(150_000), crs=CRS_MAP)
+    fires_plot = fires.to_crs(CRS_BASEMAP)
+    center_plot = center.to_crs(CRS_BASEMAP)
+    aoi_plot = aoi.to_crs(CRS_BASEMAP)
 
-    fig, ax = plt.subplots(figsize=(7.2, 6.2))
-    aoi.boundary.plot(ax=ax, color="#222222", linewidth=0.8, linestyle=(0, (3, 2)))
+    bounds = aoi_plot.total_bounds
+    margin = 24_000
+    xlim = (bounds[0] - margin, bounds[2] + margin)
+    ylim = (bounds[1] - margin, bounds[3] + margin)
+
+    fig, ax = plt.subplots(figsize=(9.0, 6.8))
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    add_cartodb_positron(ax)
+
+    aoi_plot.boundary.plot(ax=ax, color="#2A2A2A", linewidth=0.85, linestyle=(0, (4, 3)), alpha=0.72, zorder=3)
     for cohort in COHORT_ORDER:
-        subset = fires.loc[fires["fire_cohort"] == cohort] if "fire_cohort" in fires else fires.loc[fires["fire_year"].apply(cohort_for_year) == cohort]
+        subset = fires_plot.loc[fires_plot["fire_cohort"] == cohort] if "fire_cohort" in fires_plot else fires_plot.loc[fires_plot["fire_year"].apply(cohort_for_year) == cohort]
         if not subset.empty:
             subset.plot(
                 ax=ax,
                 facecolor=COHORT_COLORS[cohort],
-                edgecolor="white",
-                linewidth=0.25,
-                alpha=0.78,
+                edgecolor="#FBFBFB",
+                linewidth=0.12,
+                alpha=0.76,
+                zorder=4,
             )
-    center.plot(ax=ax, color="#111111", markersize=22, zorder=5)
-    x, y = center.geometry.iloc[0].x, center.geometry.iloc[0].y
-    ax.text(x + 7000, y + 7000, "Lebel-sur-Quevillon", fontsize=8, ha="left", va="bottom")
-    ax.set_title("Study area and wildfire history", loc="left", pad=8)
+    center_plot.plot(ax=ax, color="#111111", markersize=28, zorder=6)
+    x, y = center_plot.geometry.iloc[0].x, center_plot.geometry.iloc[0].y
+    ax.annotate(
+        "Lebel-sur-Quévillon",
+        xy=(x, y),
+        xytext=(x - 88_000, y + 40_000),
+        fontsize=9,
+        ha="left",
+        va="center",
+        arrowprops={"arrowstyle": "-", "color": "#333333", "linewidth": 0.65},
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.78, "pad": 1.5},
+        zorder=7,
+    )
+    ax.text(0.01, 1.055, "39 years of wildfire history around Lebel-sur-Quévillon", transform=ax.transAxes, fontsize=14, fontweight="bold", ha="left", va="bottom")
+    ax.text(0.01, 1.018, "78 fires ≥100 ha, 1985–2023", transform=ax.transAxes, fontsize=9.5, ha="left", va="bottom", color="#555555")
     ax.set_axis_off()
     handles = [
         Patch(facecolor=COHORT_COLORS[cohort], edgecolor="none", label=cohort, alpha=0.78)
         for cohort in COHORT_ORDER
     ]
-    ax.legend(handles=handles, frameon=False, title="Fire cohort", title_fontsize=8, loc="lower left")
+    ax.legend(handles=handles, frameon=True, facecolor="white", edgecolor="#D0D0D0", framealpha=0.88, title="Fire cohort", title_fontsize=8, loc="lower right", borderpad=0.6, labelspacing=0.45, handlelength=1.2)
+    add_scale_bar(ax, 50)
+    add_locator_inset(fig, ax, -76.98, 49.05)
     ax.set_aspect("equal")
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.91, bottom=0.02)
     save_figure(fig, "01_study_area_fire_history")
 
 

@@ -8,3 +8,4 @@ shapely
 pyproj
 requests
 earthengine-api
+contextily
