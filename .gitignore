@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local raw downloads and extraction workspace
+data/raw/
+data/tmp/
+*.zip
+*.tar
+*.tar.gz
+
+# Local credentials
+.config/earthengine/
+earthengine-credentials*
+credentials.json

@@ -1,0 +1,10 @@
+pandas
+numpy
+pyyaml
+statsmodels
+matplotlib
+geopandas
+shapely
+pyproj
+requests
+earthengine-api

@@ -1,0 +1,17 @@
+study_area:
+  name: Lebel-sur-Quevillon
+  latitude: 49.05
+  longitude: -76.98
+  radius_km: 150
+
+analysis:
+  start_year: 1984
+  end_year: 2025
+  minimum_fire_area_ha: 100
+  summer_start_month: 6
+  summer_end_month: 8
+  climate_baseline_start_year: 1991
+  climate_baseline_end_year: 2020
+
+gee:
+  project_id: ibfra2026
